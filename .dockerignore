@@ -1,0 +1,6 @@
+chart
+*.yaml
+Dockerfile
+.git
+.gitignore
+.dockerignore
