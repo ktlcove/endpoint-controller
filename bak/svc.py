@@ -2,20 +2,16 @@ from collections import namedtuple
 import os
 import kopf
 import aiohttp
-import asyncio
 import json
 
 import kubernetes
 
 from ruamel.yaml import YAML
 
-from kopf._cogs.structs.references import NamespaceName
-
 _cfg_path = os.environ.get('KUBE_ENDPOINT_CONTROLLER_CFG_PATH',
                            '/etc/kube-endpoints-controller/cfg.yaml')
 with open(_cfg_path) as f:
     cfg = YAML().load(f)
-
 
 Endpoint = namedtuple('endpoint', ('ip', 'port'))
 Endpoints = namedtuple('endponts', ('name', 'endpoints'))
@@ -42,8 +38,8 @@ class ApisixReflectHook(ABCReflectHook):
         self.create_ups = create_ups if create_ups is not None else True
         self.create_ups_args = create_ups_args or {
             # "id": "1",                  # id
-            "retries": 1,               # retry times
-            "timeout": {                # Set the timeout for connecting, sending and receiving messages.
+            "retries": 1,  # retry times
+            "timeout": {  # Set the timeout for connecting, sending and receiving messages.
                 "connect": 15,
                 "send": 15,
                 "read": 15,
@@ -128,7 +124,6 @@ class ApisixReflectHook(ABCReflectHook):
 
 
 class Reflector:
-
     HOOKS = {
         'apisix': ApisixReflectHook
     }
@@ -159,7 +154,6 @@ reflector = Reflector()
 
 @kopf.on.event("endpoints")
 async def sync__changes(body, name, namespace, type, **_):
-
     # kwargs['type']
     # MODIFIED ADDED DELETED None
 
@@ -199,7 +193,6 @@ async def sync__changes(body, name, namespace, type, **_):
 
 @kopf.on.event("service")
 async def sync_svc_changes(body, name, namespace, type, **_):
-
     if type == 'DELETED':
         event = Event(
             type=type,
@@ -210,3 +203,9 @@ async def sync_svc_changes(body, name, namespace, type, **_):
             ]
         )
         await reflector.trigger_all(event)
+
+
+@kopf.on.startup()
+async def startup(**_):
+    api = kubernetes.client.CoreV1Api()
+    all_ns = api.list_namespace()
