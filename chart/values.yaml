@@ -20,9 +20,8 @@ container:
   args:
   - run
   - --standalone
-  - -n
-  - test-6
-  - /app/endpoints_controller/svc.py
+  - -m
+  - endpoints_controller.kopf
 
 serviceAccount:
   # Specifies whether a service account should be created
@@ -92,12 +91,20 @@ affinity: {}
 
 cfg:
   clusterName: default
-  refleatorHooks:
-  - name: default
-    type: apisix
-    args:
-      api_key: ''
-      admin_url: http://apisix-admin.ingress-apisix:9180/apisix/admin
-      create_ups: true
-      default_weight: 50
-      delete_endpoints: 'mark' # delete
+
+  reflectorHooks:
+    - name: default
+      type: apisix
+      kwargs:
+        cluster_name: default
+        api_key: ''
+        admin_url: http://apisix-admin.ingress-apisix:9180/apisix/admin
+        create_ups: true
+        default_weight: 50
+        delete_endpoints: 'mark' # delete
+
+  serviceLabelSelector:
+    endpointController.reflect.http: "enabled"
+
+  servicePortNameDefault: http
+  servicePortNameLabel: endpointController.http.portName

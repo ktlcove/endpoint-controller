@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 @attr.s(kw_only=True)
 class ReflectHookConfiguration:
-    name: str
-    type: str
+    name = attr.ib(type=str)
+    type = attr.ib(type=str)
     args = attr.ib(type=typing.List[typing.Any], default=attr.Factory(list))
     kwargs = attr.ib(type=typing.Mapping[str, typing.Any], default=attr.Factory(dict))
 
@@ -21,12 +21,14 @@ class ReflectHookConfiguration:
 class Configuration:
     clusterName = attr.ib(type=str, default='default')
     namespaces = attr.ib(type=typing.List[str], default=attr.Factory(lambda: ['.*']))
-    namespaceLabelSelector = attr.ib(type=typing.Mapping[str, str], default=attr.Factory(dict))
+    # namespaceLabelSelector = attr.ib(type=typing.Mapping[str, str], default=attr.Factory(dict))
     serviceLabelSelector = attr.ib(type=typing.Mapping[str, str], default=attr.Factory(dict))
     servicePortNameDefault = attr.ib(type=str, default='http')
-    servicePortNameAnnotation = attr.ib(type=str, default='endpointController.portName')
+    servicePortNameLabel = attr.ib(type=str, default='endpointController.portName')
     reflectorHooks = attr.ib(type=typing.List[ReflectHookConfiguration], default=attr.Factory(list))
-    ignoreHeadlessService = attr.ib(type=bool, default=True)
+
+    def __attrs_post_init__(self):
+        logger.info(self)
 
 
 def load_configuration() -> Configuration:

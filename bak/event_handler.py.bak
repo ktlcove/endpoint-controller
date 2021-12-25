@@ -1,0 +1,150 @@
+import logging
+import kubernetes
+
+from endpoints_controller.cache import cache
+from endpoints_controller.configuration import cfg
+from endpoints_controller.controller import controller
+from endpoints_controller.data_struct import Service, Endpoint, Event
+
+logger = logging.getLogger(__name__)
+
+
+async def fetch_svc_from_kubernetes(namespace, name):
+    api = kubernetes.client.CoreV1Api()
+    targets = api.list_namespaced_service(namespace=namespace, field_selector=f'metadata.name={name}')
+    if targets.items:
+        body = targets.items[0]
+        return await fetch_svc_from_body(namespace, name, body)
+
+
+async def get_endpoints_from_kubernetes(namespace, name):
+    api = kubernetes.client.CoreV1Api()
+    targets = api.list_namespaced_endpoints(namespace=namespace, field_selector=f'metadata.name={name}')
+    if targets.items:
+        return targets.items[0]
+    else:
+        return None
+
+
+async def fetch_svc_from_body(namespace, name, body: dict):
+    logger.debug(f'try fetch svc from svc {namespace}.{name} body: {body}')
+    if cfg.ignoreHeadlessService:
+        if not body['spec']['clusterIP']:
+            return
+
+    # check service label selector match.
+    if cfg.serviceLabelSelector:
+        labels = body['metadata'].get('labels', {})  # type: dict
+        for k, v in cfg.serviceLabelSelector.items():
+            if labels.get(k) != v:
+                return
+
+    # decide service port
+    if cfg.servicePortNameAnnotation:
+        annotations = body['metadata'].get('annotations', {})  # type: dict
+        port_name = annotations.get(cfg.servicePortNameAnnotation,
+                                    cfg.servicePortNameDefault)
+    else:
+        port_name = cfg.servicePortNameDefault
+
+    # check port available
+    if body['spec'].get('ports'):
+        defined_ports = {p['name'] for p in body['spec']['ports']}
+        if port_name not in defined_ports:
+            logger.warning(f'svc {namespace}.{name}: port {port_name} not defined.')
+            return
+    else:
+        logger.warning(f'svc {namespace}.{name}: empty.')
+
+    logger.info(f'new svc {namespace}.{name}:{port_name}.')
+    return Service(
+        namespace=namespace,
+        name=name,
+        port_name=port_name,
+    )
+
+
+async def fill_svc_endpoints(svc: Service):
+    body = await get_endpoints_from_kubernetes(svc.namespace, svc.name)
+    return await fill_svc_endpoints_from_endpoints_body(svc, body)
+
+
+async def fill_svc_endpoints_from_endpoints_body(svc: Service, body: dict):
+    endpoints = []
+
+    for subset in body.get('subsets', []):
+        # available addresses
+        if subset.haskey('addresses'):
+            for port in subset['ports']:
+                if port['name'] == svc.port_name and port['protocol'] == 'TCP':
+                    port_number = port['port']
+                    break
+            else:
+                logger.error(f'{svc} invalid.')
+                return
+
+            # port number got, generate endpoints now
+            for e in subset['addresses']:
+                endpoints.append(Endpoint(ip=e['ip'], port=port_number))
+
+    svc.endpoints = endpoints
+
+
+@controller.register('service', None)
+@controller.register('service', 'ADDED')
+async def added_svc(event: Event):
+    logger.debug(f'run add svc handler.')
+    svc = await fetch_svc_from_body(event.namespace, event.name, event.body)
+    if not svc:
+        return
+    await fill_svc_endpoints(svc)
+    await cache.set(svc)
+
+
+@controller.register('service', 'MODIFIED')
+async def modified_svc(event: Event):
+    current_svc = cache.get(event.namespace, event.name)
+    if not current_svc:
+        logger.warning(f'svc {event.namespace}.{event.name} should exist but not found.')
+        return await added_svc(event)
+
+    new_svc = await fetch_svc_from_body(event.namespace, event.name, event.body)
+    if not new_svc:
+        logger.info(f'svc {new_svc} is mark delete.')
+        await cache.rm(current_svc)
+        return
+
+    if new_svc.port_name != current_svc.port_name:
+        # port name changed
+        logger.info(f'svc {new_svc} port changed {current_svc.port_name} -> {new_svc.port_name}')
+        await fill_svc_endpoints(new_svc)
+        await cache.set(new_svc)
+        return
+
+    logger.info(f'{current_svc} modified but nothing will be change.')
+
+
+@controller.register('service', 'DELETED')
+async def deleted_svc(event: Event):
+    current_svc = cache.get(event.namespace, event.name)
+    if not current_svc:
+        logger.warning(f'svc {event.namespace}.{event.name} should exist but not found.')
+        return
+
+    logger.info(f'{current_svc} modified will trigger deleted.')
+    await cache.rm(current_svc)
+
+
+@controller.register('endpoints', None)
+@controller.register('endpoints', 'ADDED')
+async def added_endpoints(event: Event):
+    svc = cache.get(event.namespace, event.name)
+    if not svc:
+        logger.debug(f'ignore endpoints {event.namespace}.{event.name} change, cause svc not found in cache.')
+        return
+
+
+
+@controller.register('endpoints', 'MODIFIED')
+async def modified_endpoints(event: Event):
+    pass

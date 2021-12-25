@@ -1,0 +1,78 @@
+import logging
+
+import kubernetes
+
+logger = logging.getLogger(__name__)
+
+
+class SvcController:
+
+    def __init__(self):
+        self.default_port_name = 'http'
+        self.port_key = 'endpointController.port'
+        self.cache = {}
+        self.label_selectors = {
+            'a': '1'
+        }
+        self._label_selector = ','.join([f'{k}={v}' for k, v in self.label_selectors.items()])
+        self.cache_hooks = []
+
+    async def add_cache_hook(self, hook):
+        self.cache_hooks.append(hook)
+
+    async def run_hooks(self, old_cache, new_cache):
+        for hook in self.cache_hooks:
+            await hook(old_cache, new_cache)
+
+    async def refresh_svc_cache(self, namespace, name, body):
+        if self.label_selectors:
+            labels = body.metadata.labels or {}  # type: dict
+            state = 'match'
+            for k, v in self.label_selectors.items():
+                if labels.get(k) != v:
+                    state = 'mismatch'
+                    break
+        else:
+            state = 'mismatch'
+
+        if state == 'match':
+            annotations = body.metadata.annotations or {}  # type: dict
+            port_name = annotations.get(self.port_key, self.default_port_name)
+            endpoints = {}
+            # core_api = kubernetes.client.CoreV1Api()
+            # core_api.list_namespaced_endpoints(namespace, )
+
+            if port_name not in { p['name'] for p in body.spec.ports}:
+                logger.warning(f'svc {namespace}.{name}: port {port_name} not defined.')
+                state = 'matchErr'
+        else:
+            port_name = None
+            endpoints = {}
+
+        logger.info(f'cache svc {namespace}.{name} {state} {port_name}.')
+
+        cache = self.cache.get((namespace, name), {})
+        new_cache = {
+            'state': state,
+            'port': port_name,
+            'body': body,
+            'endpoints': endpoints,
+        }
+        self.cache[(namespace, name)] = new_cache
+
+    async def check_namespace(self, namespace):
+        core_api = kubernetes.client.CoreV1Api()
+        for svc in core_api.list_namespaced_service(namespace).items:
+            logger.info(f'list svc {svc.metadata.name}.')
+            await self.refresh_svc_cache(namespace, svc.metadata.name, svc)
+
+    async def check_cluster(self, **_):
+        core_api = kubernetes.client.CoreV1Api()
+        for item in core_api.list_namespace().items:
+            namespace = item.metadata.name
+            await self.check_namespace(namespace)
+
+    # async def on_create(self, name, namespace, labels, annotations, spec, **_):
+
+
+svc_controller = SvcController()

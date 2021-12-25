@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-version = '0.0.1'
+version = '0.0.2'
 name = 'endpoints-controller'
 
 
@@ -12,11 +12,12 @@ requirements = [
     'uvloop',
     'attrs',
     'ruamel.yaml',
+    'aiohttp',
 ]
 
 entry_points = {
     "console_scripts": [
-        # f'endpoint-controller = {_pkg_name}.main:entry',
+        f'endpoints-controller = {_pkg_name}.kopf:main',
     ]
 }
 
