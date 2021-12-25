@@ -15,13 +15,8 @@ nameOverride: ""
 fullnameOverride: ""
 
 container:
-  command:
-  - kopf
-  args:
-  - run
-  - --standalone
-  - -m
-  - endpoints_controller.kopf
+  command: []
+  args: []
 
 serviceAccount:
   # Specifies whether a service account should be created
