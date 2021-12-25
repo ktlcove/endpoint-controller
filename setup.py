@@ -9,7 +9,7 @@ _pkg_name = name.replace('-', '_')
 requirements = [
     'kubernetes',
     'kopf',
-    'uvloop',
+    # 'uvloop',
     'attrs',
     'ruamel.yaml',
     'aiohttp',
